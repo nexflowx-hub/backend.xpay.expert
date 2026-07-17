@@ -20,6 +20,8 @@ import developerRoutes from '../modules/developer/routes/developer.routes';
 import adminRoutes from '../modules/admin/routes/admin.routes';
 import aiRoutes from '../modules/ai/routes/ai.routes';
 
+import platformRoutes from '../modules/platform/routes/platform.routes';
+
 import { authMiddleware } from '../middleware/auth.middleware';
 import { processSettlements } from './jobs/settlement.job';
 
@@ -146,6 +148,8 @@ app.use('/api/v1/ai', aiRoutes);
 const api = express.Router();
 
 api.use(authMiddleware);
+
+api.use('/platform', platformRoutes);
 
 api.use('/merchant', merchantRoutes);
 api.use('/gateway-vault', gatewayRoutes);

@@ -4,41 +4,37 @@ import {
   NextFunction
 } from 'express';
 
-import jwt from 'jsonwebtoken';
+import jwt, {
+  JwtPayload
+} from 'jsonwebtoken';
 
-export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    role?: string;
-    iat?: number;
-    exp?: number;
-  };
+import {
+  JWT_SECRET
+} from '../core/security';
 
+export interface AuthUser
+  extends JwtPayload {
+  id: string;
+  role: string;
+}
+
+export interface AuthRequest
+  extends Request {
+  user?: AuthUser;
   merchantId?: string;
 }
 
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-
-  if (!secret || secret.length < 64) {
-    throw new Error(
-      'JWT_SECRET não configurado ou demasiado curto.'
-    );
-  }
-
-  return secret;
-}
-
 export const authMiddleware = (
-  req: Request,
+  req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
-  const authHeader = req.headers.authorization;
+  const authorization =
+    req.headers.authorization;
 
   if (
-    !authHeader ||
-    !authHeader.startsWith('Bearer ')
+    !authorization ||
+    !authorization.startsWith('Bearer ')
   ) {
     return res.status(401).json({
       success: false,
@@ -50,7 +46,9 @@ export const authMiddleware = (
     });
   }
 
-  const token = authHeader.slice(7).trim();
+  const token = authorization
+    .slice('Bearer '.length)
+    .trim();
 
   if (!token) {
     return res.status(401).json({
@@ -65,23 +63,41 @@ export const authMiddleware = (
   try {
     const decoded = jwt.verify(
       token,
-      getJwtSecret()
-    ) as AuthRequest['user'];
+      JWT_SECRET
+    );
 
-    if (!decoded?.id) {
-      throw new Error('Token sem Merchant ID.');
+    if (
+      typeof decoded === 'string' ||
+      !decoded.id
+    ) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'INVALID_TOKEN',
+          message: 'Token inválido.'
+        }
+      });
     }
 
-    (req as AuthRequest).user = decoded;
-    (req as AuthRequest).merchantId = decoded.id;
+    const user: AuthUser = {
+      ...decoded,
+      id: String(decoded.id),
+      role: String(
+        decoded.role || 'merchant'
+      )
+    };
+
+    req.user = user;
+    req.merchantId = user.id;
 
     return next();
   } catch {
     return res.status(401).json({
       success: false,
       error: {
-        code: 'UNAUTHORIZED',
-        message: 'Token inválido ou expirado.'
+        code: 'TOKEN_EXPIRED_OR_INVALID',
+        message:
+          'Token inválido ou expirado.'
       }
     });
   }
