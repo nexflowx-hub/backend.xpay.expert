@@ -36,7 +36,15 @@ export const createSession = async (req: Request, res: Response) => {
     // Converter cêntimos para Euros (ex: 2500 -> 25.00)
     const amountInEur = Number(amount) / 100;
     const sessionId = crypto.randomUUID();
-    const checkoutUrl = `https://checkout.xpayments.digital/pay/${sessionId}`;
+
+    const checkoutBaseUrl =
+      String(
+        process.env.CHECKOUT_BASE_URL ??
+        'https://checkout.xpay.expert'
+      ).replace(/\/+$/, '');
+
+    const checkoutUrl =
+      `${checkoutBaseUrl}/pay/${sessionId}`;
 
     const session = await prisma.checkoutSession.create({
       data: {
@@ -48,7 +56,24 @@ export const createSession = async (req: Request, res: Response) => {
         currency,
         reference: reference || `CHK-${Date.now()}`,
         customerEmail,
-        metadata: metadata || {},
+        metadata: {
+          ...(
+            metadata &&
+            typeof metadata === 'object'
+              ? metadata
+              : {}
+          ),
+
+          /*
+           * Contexto exclusivamente interno.
+           * A API Key nunca é guardada na sessão,
+           * apenas o seu ID e ambiente.
+           */
+          _xpay: {
+            apiKeyId: keyRecord.id,
+            environment: keyRecord.environment
+          }
+        },
         status: 'pending',
         expiresAt: new Date(Date.now() + 30 * 60 * 1000)
       }
@@ -122,19 +147,193 @@ export const initiatePayment = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Sessão inválida.' });
     }
 
-    // Reconverter para cêntimos para o serviço Stripe (que espera cêntimos)
-    const result = await executePayment({
-      amount: Number(session.amount) * 100,
-      currency: session.currency,
-      paymentMethod,
-      storeId: session.storeId,
-      metadata: {
-        ...(session.metadata as object),
-        customerEmail: session.customerEmail,
-        ...customer
-      },
-      merchantReference: session.reference || `CHK-${session.id}`
-    });
+    if (
+      session.expiresAt.getTime() <
+      Date.now()
+    ) {
+      return res.status(410).json({
+        success: false,
+        message: 'Sessão expirada.'
+      });
+    }
+
+    const sessionMetadata: Record<
+      string,
+      any
+    > =
+      session.metadata &&
+      typeof session.metadata === 'object' &&
+      !Array.isArray(session.metadata)
+        ? {
+            ...(session.metadata as Record<
+              string,
+              any
+            >)
+          }
+        : {};
+
+    /*
+     * Contexto interno definido quando a sessão
+     * foi criada. Nunca é enviado ao frontend
+     * nem ao provider.
+     */
+    const internalContext =
+      sessionMetadata._xpay ?? {};
+
+    delete sessionMetadata._xpay;
+
+    let sessionApiKey =
+      internalContext.apiKeyId
+        ? await prisma.apiKey.findUnique({
+            where: {
+              id: String(
+                internalContext.apiKeyId
+              )
+            }
+          })
+        : null;
+
+    /*
+     * Garante que uma sessão nunca utilize
+     * uma API Key pertencente a outra Store.
+     */
+    if (
+      sessionApiKey &&
+      sessionApiKey.storeId !==
+        session.storeId
+    ) {
+      sessionApiKey = null;
+    }
+
+    /*
+     * Compatibilidade para sessões criadas
+     * antes desta atualização.
+     *
+     * Em Lab/Test escolhe uma chave Test.
+     * Em Production escolhe uma chave Live.
+     */
+    if (!sessionApiKey) {
+      const appEnvironment =
+        String(
+          process.env.APP_ENV ??
+          process.env.NODE_ENV ??
+          'lab'
+        ).toLowerCase();
+
+      const preferredEnvironment =
+        [
+          'production',
+          'prod',
+          'live'
+        ].includes(appEnvironment)
+          ? 'live'
+          : 'test';
+
+      sessionApiKey =
+        await prisma.apiKey.findFirst({
+          where: {
+            storeId:
+              session.storeId,
+
+            environment:
+              preferredEnvironment
+          },
+
+          orderBy: {
+            createdAt: 'desc'
+          }
+        });
+    }
+
+    /*
+     * Último fallback apenas para sessões
+     * legadas sem contexto de ambiente.
+     */
+    if (!sessionApiKey) {
+      sessionApiKey =
+        await prisma.apiKey.findFirst({
+          where: {
+            storeId:
+              session.storeId
+          },
+
+          orderBy: {
+            createdAt: 'desc'
+          }
+        });
+    }
+
+    if (!sessionApiKey) {
+      return res.status(409).json({
+        success: false,
+        message:
+          'Nenhuma API Key configurada para esta Store.'
+      });
+    }
+
+    const merchantReference =
+      session.reference ||
+      `CHK-${session.id}`;
+
+    /*
+     * Reconverte o valor Decimal da sessão
+     * para cêntimos.
+     */
+    const amountInCents =
+      Math.round(
+        Number(session.amount) *
+        100
+      );
+
+    const customerInput =
+      customer &&
+      typeof customer === 'object'
+        ? customer
+        : {};
+
+    const result =
+      await executePayment(
+        sessionApiKey.key,
+        {
+          amount:
+            amountInCents,
+
+          currency:
+            session.currency,
+
+          payment_method_types: [
+            paymentMethod
+          ],
+
+          customer: {
+            name:
+              customerInput.name,
+
+            email:
+              customerInput.email ??
+              session.customerEmail ??
+              undefined,
+
+            phone:
+              customerInput.phone
+          },
+
+          metadata: {
+            ...sessionMetadata,
+
+            order_id:
+              merchantReference,
+
+            reference:
+              merchantReference,
+
+            return_url:
+              customerInput.return_url ??
+              sessionMetadata.return_url ??
+              'https://xpay.expert/payment/complete'
+          }
+        }
+      );
 
     return res.status(200).json({
       success: true,

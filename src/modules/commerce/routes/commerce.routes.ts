@@ -1,21 +1,87 @@
-import { Router } from 'express';
+import {
+  Router
+} from 'express';
 
-import * as ctrl from '../controllers/commerce.controller';
+import * as ctrl
+  from '../controllers/commerce.controller';
+
+import * as products
+  from '../controllers/products.controller';
 
 const router = Router();
 
-router.get('/transactions', ctrl.getTransactions);
+router.get(
+  '/transactions',
+  ctrl.getTransactions
+);
 
-router.get('/stores', ctrl.getStores);
+router.get(
+  '/stores',
+  ctrl.getStores
+);
 
-router.get('/products', ctrl.getProducts);
-router.post('/products', ctrl.createProduct);
-router.delete('/products/:id', ctrl.deleteProduct);
+/*
+|--------------------------------------------------------------------------
+| PRODUCT CATALOG MANAGEMENT
+|--------------------------------------------------------------------------
+|
+| Rotas privadas, protegidas por JWT no app.ts.
+|
+*/
 
-router.get('/customers', ctrl.getCustomers);
+router.get(
+  '/products',
+  products.getProducts
+);
 
-router.get('/payment-links', ctrl.getPaymentLinks);
-router.get('/invoices', ctrl.getInvoices);
-router.get('/subscriptions', ctrl.getSubscriptions);
+router.post(
+  '/products',
+  products.createProduct
+);
+
+router.get(
+  '/products/:id',
+  products.getProduct
+);
+
+router.patch(
+  '/products/:id',
+  products.updateProduct
+);
+
+router.delete(
+  '/products/:id',
+  products.archiveProduct
+);
+
+router.get(
+  '/products/:id/stores',
+  products.getProductStores
+);
+
+router.put(
+  '/products/:id/stores',
+  products.replaceProductStores
+);
+
+router.get(
+  '/customers',
+  ctrl.getCustomers
+);
+
+router.get(
+  '/payment-links',
+  ctrl.getPaymentLinks
+);
+
+router.get(
+  '/invoices',
+  ctrl.getInvoices
+);
+
+router.get(
+  '/subscriptions',
+  ctrl.getSubscriptions
+);
 
 export default router;

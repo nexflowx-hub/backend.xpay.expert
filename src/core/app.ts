@@ -8,6 +8,8 @@ import cron from 'node-cron';
 import authRoutes from '../modules/auth/routes/auth.routes';
 import checkoutRoutes from '../modules/checkout/routes/checkout.routes';
 import paymentRoutes from '../modules/payments/routes/payments.routes';
+import catalogRoutes from '../modules/catalog/routes/catalog.routes';
+import * as stripeWebhook from '../modules/payments/controllers/stripe.webhook';
 import analyticsRoutes from '../modules/analytics/routes/analytics.routes';
 import walletRoutes from '../modules/wallet/routes/wallet.routes';
 import transactionRoutes from '../modules/transactions/routes/transactions.routes';
@@ -70,6 +72,25 @@ app.use(
       'Accept'
     ]
   })
+);
+
+/*
+|--------------------------------------------------------------------------
+| STRIPE RAW WEBHOOK
+|--------------------------------------------------------------------------
+|
+| Esta rota precisa do corpo bruto para validar Stripe-Signature.
+| Deve obrigatoriamente ser montada antes de express.json().
+|
+*/
+
+app.post(
+  '/api/v1/payments/webhooks/stripe',
+  express.raw({
+    type: 'application/json',
+    limit: '2mb'
+  }),
+  stripeWebhook.handleStripeWebhook
 );
 
 app.use(express.json({ limit: '2mb' }));
@@ -137,6 +158,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/checkout', checkoutRoutes);
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/catalog', catalogRoutes);
 app.use('/api/v1/ai', aiRoutes);
 
 /*
