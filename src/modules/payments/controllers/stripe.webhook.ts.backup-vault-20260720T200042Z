@@ -60,156 +60,51 @@ const resolveEventStatus = (
   }
 };
 
-type ParsedStripeEvent = {
-  event: Stripe.Event;
-  gatewayVaultId: string | null;
-};
-
-const getRawBody = (
+const parseStripeEvent = (
   req: Request
-): Buffer => {
-  if (Buffer.isBuffer(req.body)) {
-    return req.body;
-  }
-
-  return Buffer.from(
-    typeof req.body === 'string'
-      ? req.body
-      : JSON.stringify(req.body ?? {})
-  );
-};
-
-const getStripeSignature = (
-  req: Request
-): string | null => {
-  const header =
-    req.headers['stripe-signature'];
-
-  if (!header) {
-    return null;
-  }
-
-  return Array.isArray(header)
-    ? header[0]
-    : header;
-};
-
-const parseStripeEvent = async (
-  req: Request
-): Promise<ParsedStripeEvent> => {
+): Stripe.Event => {
   const rawBody =
-    getRawBody(req);
+    Buffer.isBuffer(req.body)
+      ? req.body
+      : Buffer.from(
+          typeof req.body ===
+            'string'
+            ? req.body
+            : JSON.stringify(
+                req.body ?? {}
+              )
+        );
 
-  const signature =
-    getStripeSignature(req);
-
-  const rawVaultId =
-    req.params.gatewayVaultId;
-
-  const gatewayVaultId =
-    Array.isArray(rawVaultId)
-      ? rawVaultId[0]
-      : String(rawVaultId ?? '').trim() || null;
-
-  /*
-  |--------------------------------------------------------------------------
-  | WEBHOOK POR GATEWAY VAULT
-  |--------------------------------------------------------------------------
-  */
-
-  if (gatewayVaultId) {
-    const gatewayVault =
-      await prisma.gatewayVault.findUnique({
-        where: {
-          id: gatewayVaultId
-        }
-      });
-
-    if (!gatewayVault) {
-      throw new Error(
-        'STRIPE_GATEWAY_VAULT_NOT_FOUND'
-      );
-    }
-
-    if (!gatewayVault.isActive) {
-      throw new Error(
-        'STRIPE_GATEWAY_VAULT_INACTIVE'
-      );
-    }
-
-    const credentials =
-      gatewayVault.credentials &&
-      typeof gatewayVault.credentials ===
-        'object' &&
-      !Array.isArray(
-        gatewayVault.credentials
-      )
-        ? gatewayVault.credentials as
-            Record<string, unknown>
-        : {};
-
-    const webhookSecret =
-      String(
-        credentials.webhookSecret ??
-        ''
-      ).trim();
-
-    if (!webhookSecret) {
-      throw new Error(
-        'STRIPE_WEBHOOK_SECRET_NOT_CONFIGURED_FOR_VAULT'
-      );
-    }
-
-    if (!signature) {
-      throw new Error(
-        'STRIPE_SIGNATURE_MISSING'
-      );
-    }
-
-    const event =
-      stripe.webhooks.constructEvent(
-        rawBody,
-        signature,
-        webhookSecret
-      );
-
-    return {
-      event,
-      gatewayVaultId
-    };
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | ENDPOINT GLOBAL LEGADO
-  |--------------------------------------------------------------------------
-  */
-
-  const globalWebhookSecret =
+  const webhookSecret =
     String(
       process.env
         .STRIPE_WEBHOOK_SECRET ??
       ''
     ).trim();
 
-  if (globalWebhookSecret) {
+  if (webhookSecret) {
+    const header =
+      req.headers[
+        'stripe-signature'
+      ];
+
+    const signature =
+      Array.isArray(header)
+        ? header[0]
+        : header;
+
     if (!signature) {
       throw new Error(
         'STRIPE_SIGNATURE_MISSING'
       );
     }
 
-    const event =
-      stripe.webhooks.constructEvent(
+    return stripe.webhooks
+      .constructEvent(
         rawBody,
         signature,
-        globalWebhookSecret
+        webhookSecret
       );
-
-    return {
-      event,
-      gatewayVaultId: null
-    };
   }
 
   const environment =
@@ -232,16 +127,12 @@ const parseStripeEvent = async (
   }
 
   console.warn(
-    '⚠️ [STRIPE WEBHOOK] Assinatura global não validada no ambiente Lab.'
+    '⚠️ [STRIPE WEBHOOK] Assinatura não validada porque STRIPE_WEBHOOK_SECRET não está configurado no ambiente Lab.'
   );
 
-  return {
-    event: JSON.parse(
-      rawBody.toString('utf8')
-    ) as Stripe.Event,
-
-    gatewayVaultId: null
-  };
+  return JSON.parse(
+    rawBody.toString('utf8')
+  ) as Stripe.Event;
 };
 
 export const handleStripeWebhook =
@@ -252,18 +143,9 @@ export const handleStripeWebhook =
     let event:
       Stripe.Event;
 
-    let routeGatewayVaultId:
-      string | null = null;
-
     try {
-      const parsed =
-        await parseStripeEvent(req);
-
       event =
-        parsed.event;
-
-      routeGatewayVaultId =
-        parsed.gatewayVaultId;
+        parseStripeEvent(req);
     } catch (error) {
       console.error(
         '[STRIPE_WEBHOOK_SIGNATURE_ERROR]',
@@ -335,38 +217,6 @@ export const handleStripeWebhook =
         });
       }
 
-      /*
-       * O endpoint de um Gateway Vault só pode
-       * processar transações desse mesmo Vault.
-       */
-      if (
-        routeGatewayVaultId &&
-        transaction.gatewayVaultId !==
-          routeGatewayVaultId
-      ) {
-        console.error(
-          '[STRIPE_WEBHOOK_VAULT_MISMATCH]',
-          {
-            eventId:
-              event.id,
-
-            transactionId:
-              transaction.id,
-
-            transactionGatewayVaultId:
-              transaction.gatewayVaultId,
-
-            routeGatewayVaultId
-          }
-        );
-
-        return res.status(409).json({
-          received: false,
-          error:
-            'gateway_vault_mismatch'
-        });
-      }
-
       const newStatus =
         resolveEventStatus(
           event.type
@@ -386,7 +236,7 @@ export const handleStripeWebhook =
         Number(
           process.env
             .XPAY_PAYMENT_FEE_RATE ??
-          0.01
+          0.02
         );
 
       const totalFee =

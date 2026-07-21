@@ -85,15 +85,6 @@ app.use(
 */
 
 app.post(
-  '/api/v1/payments/webhooks/stripe/:gatewayVaultId',
-  express.raw({
-    type: 'application/json',
-    limit: '2mb'
-  }),
-  stripeWebhook.handleStripeWebhook
-);
-
-app.post(
   '/api/v1/payments/webhooks/stripe',
   express.raw({
     type: 'application/json',
