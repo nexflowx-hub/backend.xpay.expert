@@ -24,10 +24,6 @@ import aiRoutes from '../modules/ai/routes/ai.routes';
 
 import platformRoutes from '../modules/platform/routes/platform.routes';
 
-import settlementRoutes from '../modules/settlement/routes/settlement.routes';
-import adminSettlementRoutes from '../modules/settlement/routes/admin-settlement.routes';
-import { requirePlatformAdmin } from '../middleware/platform-admin.middleware';
-
 import { authMiddleware } from '../middleware/auth.middleware';
 import { processSettlements } from './jobs/settlement.job';
 
@@ -185,16 +181,6 @@ const api = express.Router();
 api.use(authMiddleware);
 
 api.use('/platform', platformRoutes);
-
-
-api.use('/settlements', settlementRoutes);
-
-api.use(
-  '/admin/settlements',
-  requirePlatformAdmin,
-  adminSettlementRoutes
-);
-
 
 api.use('/merchant', merchantRoutes);
 api.use('/gateway-vault', gatewayRoutes);

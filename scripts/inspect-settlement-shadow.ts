@@ -20,24 +20,57 @@ async function main() {
 
   const rows =
     await prisma.$queryRaw<
-      Array<Record<string, unknown>>
+      Array<{
+        reference: string;
+        transaction_status: string;
+        transaction_gross: number;
+        provider_charge_id: string | null;
+        provider_balance_transaction_id: string | null;
+        gross_amount: number;
+        provider_fee: number;
+        platform_fee: number;
+        merchant_net: number;
+        currency: string;
+        release_status: string;
+        provider_available_at: Date | null;
+        batch_id: string;
+        batch_status: string;
+        transaction_count: number;
+        batch_gross: number;
+        batch_provider_fee: number;
+        batch_platform_fee: number;
+        batch_merchant_net: number;
+      }>
     >(Prisma.sql`
       SELECT
         transaction.reference,
+
         transaction.status
           AS transaction_status,
 
-        transaction.amount
+        transaction.amount::double precision
           AS transaction_gross,
 
         item.provider_charge_id,
+
         item.provider_balance_transaction_id,
-        item.gross_amount,
-        item.provider_fee,
-        item.platform_fee,
-        item.merchant_net,
+
+        item.gross_amount::double precision
+          AS gross_amount,
+
+        item.provider_fee::double precision
+          AS provider_fee,
+
+        item.platform_fee::double precision
+          AS platform_fee,
+
+        item.merchant_net::double precision
+          AS merchant_net,
+
         item.currency,
+
         item.release_status,
+
         item.provider_available_at,
 
         batch.id
@@ -47,16 +80,17 @@ async function main() {
           AS batch_status,
 
         batch.transaction_count,
-        batch.gross_amount
+
+        batch.gross_amount::double precision
           AS batch_gross,
 
-        batch.provider_fee
+        batch.provider_fee::double precision
           AS batch_provider_fee,
 
-        batch.platform_fee
+        batch.platform_fee::double precision
           AS batch_platform_fee,
 
-        batch.merchant_net
+        batch.merchant_net::double precision
           AS batch_merchant_net
 
       FROM public.transactions
@@ -80,11 +114,12 @@ async function main() {
       LIMIT 1
     `);
 
-  console.dir(
-    rows[0] ?? null,
-    {
-      depth: null
-    }
+  console.log(
+    JSON.stringify(
+      rows[0] ?? null,
+      null,
+      2
+    )
   );
 }
 
