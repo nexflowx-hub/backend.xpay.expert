@@ -17,6 +17,11 @@ import {
   sanitizePaymentIntent
 } from '../services/payment.service';
 
+
+import {
+  recordStripeSettlementShadow
+} from '../../settlement/services/settlement-shadow.service';
+
 const prisma =
   new PrismaClient();
 
@@ -592,7 +597,45 @@ export const handleStripeWebhook =
         );
       }
 
-      console.log(
+            if (
+        newStatus === 'succeeded' &&
+        routeGatewayVaultId
+      ) {
+        try {
+          const settlementShadow =
+            await recordStripeSettlementShadow({
+              eventId:
+                event.id,
+
+              eventType:
+                event.type,
+
+              livemode:
+                event.livemode,
+
+              transactionId:
+                transaction.id,
+
+              gatewayVaultId:
+                routeGatewayVaultId,
+
+              paymentIntentId:
+                paymentIntent.id
+            });
+
+          console.log(
+            '[XPAY_SETTLEMENT_SHADOW_RECORDED]',
+            settlementShadow
+          );
+        } catch (settlementError) {
+          console.error(
+            '[XPAY_SETTLEMENT_SHADOW_ERROR]',
+            settlementError
+          );
+        }
+      }
+
+console.log(
         '[XPAY_STRIPE_WEBHOOK_PROCESSED]',
         {
           eventId:
