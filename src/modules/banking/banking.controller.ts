@@ -27,8 +27,88 @@ const routeParam = (
     ? String(value[0] ?? '')
     : String(value ?? '');
 
-const ok = (res: Response, data: unknown, status = 200): Response =>
-  res.status(status).json({ success: true, data });
+const toCamelKey = (
+  key: string
+): string =>
+  key.replace(
+    /_([a-z])/g,
+    (_match, letter: string) =>
+      letter.toUpperCase()
+  );
+
+const numericFields =
+  new Set([
+    'amount',
+    'ledgerBalance',
+    'sourceAmount',
+    'targetAmount',
+    'rate',
+    'openingBalance',
+    'closingBalance',
+    'balance',
+    'fxRate',
+    'fxAmount'
+  ]);
+
+const normalizeDbPayload = (
+  value: unknown,
+  fieldName?: string
+): unknown => {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item =>
+      normalizeDbPayload(item)
+    );
+  }
+
+  if (
+    value !== null &&
+    typeof value === 'object'
+  ) {
+    return Object.fromEntries(
+      Object.entries(
+        value as Record<string, unknown>
+      ).map(([key, item]) => {
+        const camelKey =
+          toCamelKey(key);
+
+        return [
+          camelKey,
+          normalizeDbPayload(
+            item,
+            camelKey
+          )
+        ];
+      })
+    );
+  }
+
+  if (
+    fieldName &&
+    numericFields.has(fieldName) &&
+    typeof value === 'string' &&
+    value.trim() !== '' &&
+    Number.isFinite(Number(value))
+  ) {
+    return Number(value);
+  }
+
+  return value;
+};
+
+const ok = (
+  res: Response,
+  data: unknown,
+  status = 200
+): Response =>
+  res.status(status).json({
+    success: true,
+    data:
+      normalizeDbPayload(data)
+  });
 
 const fail = (res: Response, error: unknown): Response => {
   const code = error instanceof Error ? error.message : 'BANKING_UNKNOWN_ERROR';

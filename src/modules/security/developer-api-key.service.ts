@@ -1,5 +1,16 @@
 import crypto from 'node:crypto';
+import type {
+  QueryResult,
+  QueryResultRow
+} from 'pg';
 import { dbPool, withTransaction } from '../../lib/db-pool';
+
+type QueryExecutor = {
+  query<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[]
+  ): Promise<QueryResult<T>>;
+};
 import { consumeSecurityActionToken } from './security-challenge.service';
 
 const apiKeyPepper = (): string => {
@@ -38,8 +49,10 @@ const generateApiKey = (
   };
 };
 
-const tableColumns = async (): Promise<Set<string>> => {
-  const result = await dbPool.query<{ column_name: string }>(
+const tableColumns = async (
+  executor: QueryExecutor = dbPool
+): Promise<Set<string>> => {
+  const result = await executor.query<{ column_name: string }>(
     `
       SELECT column_name
       FROM information_schema.columns
@@ -64,18 +77,19 @@ export const listSecureApiKeys = async (
     `
       SELECT
         ak.id,
-        ak.store_id,
-        s.store_code,
-        s.name AS store_name,
-        ak.key_prefix,
-        ak.key_last_four,
+        ak.store_id AS "storeId",
+        s.store_code AS "storeCode",
+        s.name AS "storeName",
+        ak.name,
+        ak.key_prefix AS "keyPrefix",
+        ak.key_last_four AS "keyLastFour",
         ak.environment,
         ak.scopes,
         ak.status,
-        ak.last_used_at,
-        ak.expires_at,
-        ak.revoked_at,
-        ak.created_at
+        ak.last_used_at AS "lastUsedAt",
+        ak.expires_at AS "expiresAt",
+        ak.revoked_at AS "revokedAt",
+        ak.created_at AS "createdAt"
       FROM public.api_keys ak
       JOIN public.stores s ON s.id = ak.store_id
       WHERE COALESCE(ak.merchant_id, s.merchant_id) = $1
@@ -97,7 +111,9 @@ const insertApiKey = async (input: {
   ip?: string | null;
   userAgent?: string | null;
   rotatedFromId?: string | null;
-}): Promise<{
+},
+  executor: QueryExecutor = dbPool
+): Promise<{
   id: string;
   fullKey: string;
   keyPrefix: string;
@@ -105,7 +121,7 @@ const insertApiKey = async (input: {
   environment: string;
   scopes: string[];
 }> => {
-  const ownership = await dbPool.query(
+  const ownership = await executor.query(
     `
       SELECT id
       FROM public.stores
@@ -121,7 +137,7 @@ const insertApiKey = async (input: {
   }
 
   const generated = generateApiKey(input.environment);
-  const columns = await tableColumns();
+  const columns = await tableColumns(executor);
 
   const insertColumns = [
     'merchant_id',
@@ -168,7 +184,7 @@ const insertApiKey = async (input: {
   }
 
   const placeholders = values.map((_, index) => `$${index + 1}`);
-  const result = await dbPool.query<{ id: string }>(
+  const result = await executor.query<{ id: string }>(
     `
       INSERT INTO public.api_keys (${insertColumns.join(', ')})
       VALUES (${placeholders.join(', ')})
@@ -253,15 +269,18 @@ export const rotateSecureApiKey = async (input: {
       throw new Error('API_KEY_NOT_FOUND');
     }
 
-    const newKey = await insertApiKey({
-      merchantId: input.merchantId,
-      storeId: current.rows[0].store_id,
-      environment: current.rows[0].environment,
-      scopes: current.rows[0].scopes,
-      rotatedFromId: input.apiKeyId,
-      ip: input.ip,
-      userAgent: input.userAgent
-    });
+    const newKey = await insertApiKey(
+      {
+        merchantId: input.merchantId,
+        storeId: current.rows[0].store_id,
+        environment: current.rows[0].environment,
+        scopes: current.rows[0].scopes,
+        rotatedFromId: input.apiKeyId,
+        ip: input.ip,
+        userAgent: input.userAgent
+      },
+      client
+    );
 
     await client.query(
       `

@@ -83,6 +83,9 @@ app.use(
       'Authorization',
       'Content-Type',
       'x-api-key',
+      'Idempotency-Key',
+      'X-Security-Action',
+      'X-Request-Id',
       'Accept'
     ]
   })
