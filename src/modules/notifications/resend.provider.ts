@@ -15,7 +15,9 @@ interface ResendResponse {
 export const sendResendEmail = async (
   input: SendResendEmailInput
 ): Promise<{ providerMessageId: string | null }> => {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey =
+    process.env.RESEND_API_KEY ??
+    process.env.XPAY_RESEND_API_KEY;
   const from = process.env.XPAY_EMAIL_FROM;
 
   if (!apiKey) {
