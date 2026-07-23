@@ -26,11 +26,21 @@ import platformRoutes from '../modules/platform/routes/platform.routes';
 
 import settlementRoutes from '../modules/settlement/routes/settlement.routes';
 import adminSettlementRoutes from '../modules/settlement/routes/admin-settlement.routes';
+import adminSettlementOperationsRoutes from '../modules/settlement/routes/admin-settlement-operations.routes';
 import { requirePlatformAdmin } from '../middleware/platform-admin.middleware';
+import merchantPayoutRoutes from '../modules/payout/routes/merchant-payout.routes';
+import adminMerchantPayoutRoutes from '../modules/payout/routes/admin-merchant-payout.routes';
 
 import { authMiddleware } from '../middleware/auth.middleware';
 import { processSettlements } from './jobs/settlement.job';
 
+import platformCapabilitiesRoutes from '../modules/platform/routes/platform-capabilities.routes';
+
+import securityChallengeRoutes from '../modules/security/security-challenge.routes';
+import developerApiKeyV2Routes from '../modules/security/developer-api-key.routes';
+import bankingRoutes from '../modules/banking/banking.routes';
+import { s2sIdempotencyMiddleware } from '../middleware/s2s-idempotency.middleware';
+import { payoutSecurityGate } from '../middleware/payout-security-gate.middleware';
 const app = express();
 
 const PORT = Number(process.env.PORT || 8085);
@@ -142,7 +152,15 @@ cron.schedule(
 );
 
 console.log(
-  '✅ [CRON] Liquidação automática do XPAY.Expert iniciada.'
+  String(
+    process.env
+      .XPAY_LEGACY_SETTLEMENT_CRON_ENABLED ??
+    'false'
+  )
+    .trim()
+    .toLowerCase() === 'true'
+    ? '✅ [CRON] Liquidação automática legada do XPAY.Expert iniciada.'
+    : '⏸️ [CRON] Liquidação automática legada desativada; Settlement Ledger autoritativo ativo.'
 );
 
 /*
@@ -168,8 +186,14 @@ app.get('/api/health', (_req, res) => {
 |--------------------------------------------------------------------------
 */
 
+app.use('/api/v1/merchant/payouts', payoutSecurityGate);
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/banking', bankingRoutes);
+app.use('/api/v1/developer/api-keys', developerApiKeyV2Routes);
+app.use('/api/v1/security', securityChallengeRoutes);
+app.use('/api/v1/platform', platformCapabilitiesRoutes);
 app.use('/api/v1/checkout', checkoutRoutes);
+app.use('/api/v1/payments/charge', s2sIdempotencyMiddleware);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/catalog', catalogRoutes);
 app.use('/api/v1/ai', aiRoutes);
@@ -188,11 +212,23 @@ api.use('/platform', platformRoutes);
 
 
 api.use('/settlements', settlementRoutes);
+api.use('/merchant/payouts', merchantPayoutRoutes);
 
 api.use(
   '/admin/settlements',
   requirePlatformAdmin,
   adminSettlementRoutes
+);
+
+api.use(
+  '/admin/settlements',
+  requirePlatformAdmin,
+  adminSettlementOperationsRoutes
+);
+api.use(
+  '/admin/merchant-payouts',
+  requirePlatformAdmin,
+  adminMerchantPayoutRoutes
 );
 
 

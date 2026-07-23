@@ -19,8 +19,8 @@ import {
 
 
 import {
-  recordStripeSettlementShadow
-} from '../../settlement/services/settlement-shadow.service';
+  recordStripeSettlementAndReconcile
+} from '../../settlement/services/settlement-ledger.service';
 
 const prisma =
   new PrismaClient();
@@ -603,7 +603,7 @@ export const handleStripeWebhook =
       ) {
         try {
           const settlementShadow =
-            await recordStripeSettlementShadow({
+            await recordStripeSettlementAndReconcile({
               eventId:
                 event.id,
 

@@ -4,7 +4,7 @@ import {
   Response
 } from 'express';
 
-function resolveAuthenticatedMerchantId(
+function resolveMerchantId(
   req: Request
 ): string {
   const request =
@@ -31,9 +31,9 @@ export function requirePlatformAdmin(
   next: NextFunction
 ) {
   const merchantId =
-    resolveAuthenticatedMerchantId(req);
+    resolveMerchantId(req);
 
-  const adminMerchantIds =
+  const admins =
     String(
       process.env
         .XPAY_ADMIN_MERCHANT_IDS ??
@@ -45,9 +45,7 @@ export function requirePlatformAdmin(
 
   if (
     !merchantId ||
-    !adminMerchantIds.includes(
-      merchantId
-    )
+    !admins.includes(merchantId)
   ) {
     return res.status(403).json({
       success: false,
