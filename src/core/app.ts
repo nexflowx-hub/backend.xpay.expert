@@ -8,6 +8,8 @@ import cron from 'node-cron';
 import authRoutes from '../modules/auth/routes/auth.routes';
 import checkoutRoutes from '../modules/checkout/routes/checkout.routes';
 import paymentRoutes from '../modules/payments/routes/payments.routes';
+import catalogRoutes from '../modules/catalog/routes/catalog.routes';
+import * as stripeWebhook from '../modules/payments/controllers/stripe.webhook';
 import analyticsRoutes from '../modules/analytics/routes/analytics.routes';
 import walletRoutes from '../modules/wallet/routes/wallet.routes';
 import transactionRoutes from '../modules/transactions/routes/transactions.routes';
@@ -22,9 +24,23 @@ import aiRoutes from '../modules/ai/routes/ai.routes';
 
 import platformRoutes from '../modules/platform/routes/platform.routes';
 
+import settlementRoutes from '../modules/settlement/routes/settlement.routes';
+import adminSettlementRoutes from '../modules/settlement/routes/admin-settlement.routes';
+import adminSettlementOperationsRoutes from '../modules/settlement/routes/admin-settlement-operations.routes';
+import { requirePlatformAdmin } from '../middleware/platform-admin.middleware';
+import merchantPayoutRoutes from '../modules/payout/routes/merchant-payout.routes';
+import adminMerchantPayoutRoutes from '../modules/payout/routes/admin-merchant-payout.routes';
+
 import { authMiddleware } from '../middleware/auth.middleware';
 import { processSettlements } from './jobs/settlement.job';
 
+import platformCapabilitiesRoutes from '../modules/platform/routes/platform-capabilities.routes';
+
+import securityChallengeRoutes from '../modules/security/security-challenge.routes';
+import developerApiKeyV2Routes from '../modules/security/developer-api-key.routes';
+import bankingRoutes from '../modules/banking/banking.routes';
+import { s2sIdempotencyMiddleware } from '../middleware/s2s-idempotency.middleware';
+import { payoutSecurityGate } from '../middleware/payout-security-gate.middleware';
 const app = express();
 
 const PORT = Number(process.env.PORT || 8085);
@@ -67,9 +83,40 @@ app.use(
       'Authorization',
       'Content-Type',
       'x-api-key',
+      'Idempotency-Key',
+      'X-Security-Action',
+      'X-Request-Id',
       'Accept'
     ]
   })
+);
+
+/*
+|--------------------------------------------------------------------------
+| STRIPE RAW WEBHOOK
+|--------------------------------------------------------------------------
+|
+| Esta rota precisa do corpo bruto para validar Stripe-Signature.
+| Deve obrigatoriamente ser montada antes de express.json().
+|
+*/
+
+app.post(
+  '/api/v1/payments/webhooks/stripe/:gatewayVaultId',
+  express.raw({
+    type: 'application/json',
+    limit: '2mb'
+  }),
+  stripeWebhook.handleStripeWebhook
+);
+
+app.post(
+  '/api/v1/payments/webhooks/stripe',
+  express.raw({
+    type: 'application/json',
+    limit: '2mb'
+  }),
+  stripeWebhook.handleStripeWebhook
 );
 
 app.use(express.json({ limit: '2mb' }));
@@ -108,7 +155,15 @@ cron.schedule(
 );
 
 console.log(
-  '✅ [CRON] Liquidação automática do XPAY.Expert iniciada.'
+  String(
+    process.env
+      .XPAY_LEGACY_SETTLEMENT_CRON_ENABLED ??
+    'false'
+  )
+    .trim()
+    .toLowerCase() === 'true'
+    ? '✅ [CRON] Liquidação automática legada do XPAY.Expert iniciada.'
+    : '⏸️ [CRON] Liquidação automática legada desativada; Settlement Ledger autoritativo ativo.'
 );
 
 /*
@@ -134,9 +189,16 @@ app.get('/api/health', (_req, res) => {
 |--------------------------------------------------------------------------
 */
 
+app.use('/api/v1/merchant/payouts', payoutSecurityGate);
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/banking', bankingRoutes);
+app.use('/api/v1/developer/api-keys', developerApiKeyV2Routes);
+app.use('/api/v1/security', securityChallengeRoutes);
+app.use('/api/v1/platform', platformCapabilitiesRoutes);
 app.use('/api/v1/checkout', checkoutRoutes);
+app.use('/api/v1/payments/charge', s2sIdempotencyMiddleware);
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/catalog', catalogRoutes);
 app.use('/api/v1/ai', aiRoutes);
 
 /*
@@ -150,6 +212,28 @@ const api = express.Router();
 api.use(authMiddleware);
 
 api.use('/platform', platformRoutes);
+
+
+api.use('/settlements', settlementRoutes);
+api.use('/merchant/payouts', merchantPayoutRoutes);
+
+api.use(
+  '/admin/settlements',
+  requirePlatformAdmin,
+  adminSettlementRoutes
+);
+
+api.use(
+  '/admin/settlements',
+  requirePlatformAdmin,
+  adminSettlementOperationsRoutes
+);
+api.use(
+  '/admin/merchant-payouts',
+  requirePlatformAdmin,
+  adminMerchantPayoutRoutes
+);
+
 
 api.use('/merchant', merchantRoutes);
 api.use('/gateway-vault', gatewayRoutes);
