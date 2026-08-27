@@ -26,6 +26,7 @@ model Merchant {
   transactions     Transaction[]
   customers        Customer[]
   products         Product[]
+  productStores    ProductStore[]
   stores           Store[]
   checkoutSessions CheckoutSession[]
   gatewayVaults    GatewayVault[]
@@ -125,20 +126,54 @@ model Customer {
 }
 
 model Product {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  merchantId  String   @map("merchant_id") @db.Uuid
-  name        String
-  description String?
-  price       Decimal  @db.Decimal(18, 2)
-  currency    String   @default("EUR")
-  active      Boolean  @default(true)
-  sales       Int      @default(0)
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId        String   @map("merchant_id") @db.Uuid
+  sku               String?
+  name              String
+  description       String?
+  price             Decimal  @db.Decimal(18, 2)
+  currency          String   @default("EUR")
+  active            Boolean  @default(true)
+  catalogScope      String   @default("global") @map("catalog_scope")
+  publicationStatus String   @default("active") @map("publication_status")
+  sales             Int      @default(0)
+  stock             Int?
+  metadata          Json     @default(dbgenerated("'{}'::jsonb"))
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  merchant   Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  storeLinks ProductStore[]
+
+  @@unique([id, merchantId], map: "products_id_merchant_unique")
+  @@index([merchantId, publicationStatus])
+  @@index([merchantId, catalogScope])
+  @@map("products")
+}
+
+model ProductStore {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId  String    @map("merchant_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  storeId     String    @map("store_id") @db.Uuid
+  enabled     Boolean   @default(true)
+  price       Decimal?  @db.Decimal(18, 2)
+  currency    String?
   stock       Int?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  metadata    Json      @default(dbgenerated("'{}'::jsonb"))
+  publishedAt DateTime? @map("published_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-  @@map("products")
+  @@unique([productId, storeId], map: "product_stores_product_store_unique")
+  @@index([merchantId])
+  @@index([productId])
+  @@index([storeId, enabled])
+  @@map("product_stores")
 }
 
 model Store {
@@ -161,7 +196,9 @@ model Store {
   transactions     Transaction[]
   apiKeys          ApiKey[]
   webhooks         Webhook[]
+  productLinks     ProductStore[]
 
+  @@unique([id, merchantId], map: "stores_id_merchant_unique")
   @@map("stores")
 }
 

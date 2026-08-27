@@ -3,6 +3,21 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 export const processSettlements = async () => {
+  const legacyEnabled =
+    String(
+      process.env
+        .XPAY_LEGACY_SETTLEMENT_CRON_ENABLED ??
+      'false'
+    ).toLowerCase() === 'true';
+
+  if (!legacyEnabled) {
+    console.log(
+      '⏸️ [SETTLEMENT] Cron D+3 legado desativado por feature flag.'
+    );
+
+    return;
+  }
+
   console.log('🔄 [SETTLEMENT] Iniciando liquidação de fundos (D+3)...');
   
   // Calcula a data limite: Tudo o que tem mais de 3 dias

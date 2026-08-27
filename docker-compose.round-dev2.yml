@@ -1,0 +1,7 @@
+services:
+  notification-worker:
+    build: .
+    command: node dist/modules/notifications/notification.worker.js
+    env_file:
+      - .env
+    restart: unless-stopped
